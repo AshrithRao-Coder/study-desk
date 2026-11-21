@@ -1,5 +1,5 @@
 // Caches the app so it opens with no signal. Bump CACHE when you publish changes.
-const CACHE = "study-desk-88b6de5fd9bf5edb";
+const CACHE = "study-desk-5fa74123e8da113e";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {

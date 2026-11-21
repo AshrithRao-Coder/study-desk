@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assessAnswer, markingRules } from './study-engine.js';
-import { cardMastery, masteryCounts, needsAnotherLook, coachStatus, deckSignature, recommendedMethod, overallPlan, scheduleForDeck, finishCoachSession } from './coach-engine.js';
+import { cardMastery, masteryCounts, needsAnotherLook, coachStatus, deckSignature, recommendedMethod, overallPlan, scheduleForDeck, finishCoachSession, guidedMethod } from './coach-engine.js';
 import { serializeCards, parseCardLines } from './card-format.js';
 
 const now=new Date(2026,10,21,12);
 const basic={id:'a',q:'Capital?',a:'Paris',tags:[],seen:0,right:0,next:'2026-11-21',interval:0,lapses:0,reps:0};
-const learned={...basic,seen:3,right:3,interval:6,stability:6,reviewHistory:['2026-11-19','2026-11-20','2026-11-21'].map(day=>({day,correct:true,assisted:false,method:'type'}))};
+const learned={...basic,seen:9,right:9,interval:6,stability:6,reviewHistory:Array.from({length:9},(_,index)=>({day:['2026-11-19','2026-11-20','2026-11-21'][index%3],correct:true,assisted:false,method:'type',attemptId:`learned-${index}:0`}))};
 test('diacritics are independent of case, punctuation and typo tolerance',()=> {
   for (const [a,b] of [['cafe','café'],['nino','niño'],['uber','über'],['francais','français']]) {
     assert.equal(assessAnswer(a,b).correct,false);
@@ -38,22 +38,22 @@ test('coach unlocks the final test only when every card has mastery evidence',()
   assert.equal(coachStatus({...deck,cards:[learned,basic]},now).ready,false);
   assert.equal(coachStatus({cards:[],coach:{}},now).ready,false);
 });
-test('mastery restores the original accuracy, strength and mistake weights',()=> {
+test('mastery needs three times the independent practice with strict mistake weights',()=> {
   const first={...basic,seen:1,right:1,stability:1,reviewHistory:[{day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:'first:0'}]};
-  assert.equal(cardMastery(first,now).score,56);
+  assert.equal(cardMastery(first,now).score,42);
   const third={...first,seen:3,right:3,reviewHistory:[1,2,3].map(index=>({...first.reviewHistory[0],attemptId:`session-${index}:0`}))};
-  assert.equal(cardMastery(third,now).score,96);
+  assert.equal(cardMastery(third,now).score,56);
   const missed={...third,seen:4,right:3,reviewHistory:[...third.reviewHistory,{day:'2026-11-21',correct:false,assisted:false,method:'type',attemptId:'missed:0'}]};
-  assert.equal(cardMastery(missed,now).score,79);
+  assert.equal(cardMastery(missed,now).score,39);
   assert.equal(cardMastery(missed,now).recallSessions,3,'One missed session does not cancel earlier successful sessions that day');
   assert.notEqual(cardMastery(missed,now).stage,'mature');
 });
 test('a two-card deck can reach full mastery through separate perfect sessions on the same day',()=> {
-  const history=Array.from({length:4},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
+  const history=Array.from({length:12},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
   const card={...basic,seen:3,right:3,stability:1,reviewHistory:history};
   const deck={cards:[card,{...card,id:'b'}],coach:{enabled:true}};
   assert.equal(cardMastery(card,now).recallDays,1);
-  assert.equal(cardMastery(card,now).recallSessions,4);
+  assert.equal(cardMastery(card,now).recallSessions,12);
   assert.equal(cardMastery(card,now).score,100);
   assert.equal(coachStatus(deck,now).score,100);
   assert.equal(coachStatus(deck,now).ready,true);
@@ -61,6 +61,25 @@ test('a two-card deck can reach full mastery through separate perfect sessions o
   const singleSession={...card,reviewHistory:history.map((entry,index)=>({...entry,attemptId:`same-session:${index}`}))};
   assert.equal(cardMastery(singleSession,now).recallSessions,1);
   assert.notEqual(cardMastery(singleSession,now).stage,'mature','Retries inside one session are not independent sessions');
+});
+test('mastery needs nine independent successful sessions and does not rely on recognition alone',()=> {
+  const history=Array.from({length:9},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
+  const card={...basic,seen:9,right:9,stability:1,reviewHistory:history};
+  assert.notEqual(cardMastery({...card,reviewHistory:history.slice(0,8)},now).stage,'mature');
+  assert.equal(cardMastery(card,now).stage,'mature');
+  assert.notEqual(cardMastery({...card,reviewHistory:history.map(entry=>({...entry,method:'quiz'}))},now).stage,'mature');
+  assert.equal(cardMastery({...card,reviewHistory:history.map((entry,index)=>({...entry,method:index<3?'type':'quiz'}))},now).stage,'mature','Mixed methods count when enough unaided recalls support them');
+});
+test('guide rotation includes all five methods and skips unsupported choices',()=> {
+  const cards=['Paris','Tokyo','Rome','Madrid'].map((a,index)=>({...basic,id:String(index),a}));
+  const modes=Array.from({length:5},(_,guideStep)=>guidedMethod({cards,coach:{guideStep}}).mode);
+  assert.deepEqual(modes,['flip','quiz','type','match','boolean']);
+  assert.equal(guidedMethod({cards:cards.slice(0,2),coach:{guideStep:1}}).mode,'type');
+  assert.equal(guidedMethod({cards:cards.slice(0,1),coach:{guideStep:3}}).mode,'flip');
+  const deck={cards,coach:{enabled:true}};
+  const next=finishCoachSession(deck,'learn',new Map([['0',true]]),now,{mode:'quiz',guideStep:1});
+  assert.equal(next.guideStep,2);
+  assert.equal(next.lastGuidedMethod,'quiz');
 });
 test('all questions and full marks are required to pass; edits invalidate the pass',()=> {
   const deck={cards:[learned,{...learned,id:'b'}],coach:{enabled:true}};

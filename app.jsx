@@ -311,13 +311,13 @@ function Deck({ deck, updateDeck, onBack, onDelete, countReview }) {
       return old && content(old)!==content(card) ? {...newCard(card.q,card.a,card.tags,card.marking,card.acceptedAnswers||[],card.explanation||''),id:card.id,starred:card.starred} : card;
     });
     if (resetCoach) clearSession(deck);
-    updateDeck({ ...deck, cards:nextCards, ...(resetCoach?{coach:{...deck.coach,passedAt:null,passedSignature:null,lastTest:null,lastRevisionDay:null}}:{}) });
+    updateDeck({ ...deck, cards:nextCards, ...(resetCoach?{coach:{...deck.coach,passedAt:null,passedSignature:null,lastTest:null,lastRevisionDay:null,guideStep:0,lastGuidedMethod:null}}:{}) });
   };
   const patchCard = (id, patch) => setCards(deck.cards.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   const startSession=config=>{clearSession(deck);setSession(config);};
 
   const draft=loadSession(deck);
-  if (session) return <Session deck={deck} config={session} onEnd={() => {clearSession(deck);setSession(null);}} onPause={()=>setSession(null)} patchCard={patchCard} countReview={countReview} onComplete={attempts => {if (session.coachKind && session.coachKind !== 'learn') updateDeck({...deck,coach:finishCoachSession(deck,session.coachKind,attempts)});}} />;
+  if (session) return <Session deck={deck} config={session} onEnd={() => {clearSession(deck);setSession(null);}} onPause={()=>setSession(null)} patchCard={patchCard} countReview={countReview} onComplete={attempts => {if (session.coachKind) updateDeck({...deck,coach:finishCoachSession(deck,session.coachKind,attempts,new Date(),session)});}} />;
 
   return (
     <div className="space-y-4">

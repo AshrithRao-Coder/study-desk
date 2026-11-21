@@ -1,4 +1,4 @@
-import { dateKey, markingRules, scheduleReview, reviewPool, isDateKey } from './study-engine.js';
+import { dateKey, markingRules, scheduleReview, reviewPool, isDateKey, canUseStudyMethod } from './study-engine.js';
 
 export const STAGES = ['new','needsPractice','learning','young','mature'];
 export const STAGE_LABELS = {new:'New', needsPractice:'Needs lots of practice', learning:'Learning', young:'Young', mature:'Mature'};
@@ -7,7 +7,7 @@ export function cardMastery(card, now = new Date()) {
   const history = (Array.isArray(card.reviewHistory) ? card.reviewHistory : []).filter(entry => entry && typeof entry.correct === 'boolean' && isDateKey(entry.day));
   const recent = history.slice(-8);
   const seen = Number(card.seen) || 0;
-  if (!seen && !recent.length) return {score:0, stage:'new', recallDays:0, recallSessions:0, misses:0};
+  if (!seen && !recent.length) return {score:0, stage:'new', recallDays:0, recallSessions:0, practiceSessions:0, misses:0};
   const misses = recent.length ? recent.filter(entry => !entry.correct).length : Math.max(0, seen-(Number(card.right)||0));
   const recentAccuracy=recent.length ? recent.filter(entry=>entry.correct).length/recent.length : seen ? Math.max(0,Math.min(1,(Number(card.right)||0)/seen)) : 0;
   const evidenceKey=entry=>typeof entry.attemptId==='string' && entry.attemptId.lastIndexOf(':')>0
@@ -18,16 +18,21 @@ export function cardMastery(card, now = new Date()) {
   const recall=history.filter(entry=>unaided(entry) && !failedSessions.has(evidenceKey(entry)));
   const recallDays=new Set(recall.map(entry=>entry.day)).size;
   const recallSessions=new Set(recall.map(evidenceKey)).size;
-  const evidence=Math.min(3,recallSessions);
+  const successful=history.filter(entry=>entry.correct && !failedSessions.has(evidenceKey(entry)));
+  const practiceSessions=new Set(successful.map(evidenceKey)).size;
+  // Require about three times the independent practice, with unaided checks
+  // throughout: recognition-only practice cannot supply mastery evidence alone.
+  const effectiveEvidence=Math.min(practiceSessions,recallSessions*3);
+  const evidence=Math.min(9,effectiveEvidence)/3;
   const strength=Math.min(15,Math.max(0,Number(card.stability ?? card.interval)||0)/2);
   const overdue = isDateKey(card.next) ? Math.max(0,dayNumber(dateKey(now))-dayNumber(card.next)) : 0;
   const decay=Math.min(20,overdue/Math.max(1,Number(card.stability ?? card.interval)||1)*5);
-  const score=Math.round(Math.max(0,Math.min(100,recentAccuracy*35 + evidence*15 + Math.min(4,recall.length)*5 + strength - Math.min(30,misses*8) - decay)));
+  const score=Math.round(Math.max(0,Math.min(100,recentAccuracy*35 + evidence*15 + Math.min(12,effectiveEvidence)/3*5 + strength - Math.min(30,misses*8) - decay)));
   const struggling=(misses>=2 && recentAccuracy<.7) || (!recent.length && seen>=3 && recentAccuracy<.5);
   const lastMiss=history.findLastIndex(entry=>!entry.correct);
   const recovered=lastMiss<0 || history.slice(lastMiss+1).some(unaided);
-  const stage = struggling ? 'needsPractice' : score >= 80 && recallSessions >= 2 && recovered && recent.slice(-2).every(entry=>entry.correct) ? 'mature' : score >= 60 ? 'young' : 'learning';
-  return {score,stage,recallDays,recallSessions,misses};
+  const stage = struggling ? 'needsPractice' : score >= 80 && effectiveEvidence>=9 && recallSessions>=3 && recovered && recent.slice(-2).every(entry=>entry.correct) ? 'mature' : score >= 60 ? 'young' : 'learning';
+  return {score,stage,recallDays,recallSessions,practiceSessions,misses};
 }
 export function masteryCounts(cards, now = new Date()) {
   const counts = Object.fromEntries(STAGES.map(stage=>[stage,0]));
@@ -62,6 +67,15 @@ export function recommendedMethod(card, cards, now = new Date()) {
   // Alternate scaffolded recall and unaided recall as evidence improves.
   return ['gap','hint','flip','quiz','boolean','match'].includes(card.lastMethod) ? 'type' : 'flip';
 }
+export const GUIDE_METHODS=['flip','quiz','type','match','boolean'];
+export function guidedMethod(deck) {
+  const start=Number.isSafeInteger(deck.coach?.guideStep) && deck.coach.guideStep>=0 ? deck.coach.guideStep : 0;
+  for (let offset=0;offset<GUIDE_METHODS.length;offset++) {
+    const step=start+offset,mode=GUIDE_METHODS[step%GUIDE_METHODS.length];
+    if (canUseStudyMethod(mode,deck.cards)) return {mode,step};
+  }
+  return {mode:'flip',step:start};
+}
 export function overallPlan(deck, now = new Date()) {
   return reviewPool(deck.cards,'all',now).sort((a,b)=> {
     const order = {needsPractice:0,new:1,learning:2,young:3,mature:4};
@@ -77,14 +91,16 @@ export function scheduleForDeck(deck, card, result, now = new Date()) {
   }
   return updated;
 }
-export function finishCoachSession(deck, kind, attempts, now = new Date()) {
+export function finishCoachSession(deck, kind, attempts, now = new Date(),config={}) {
   const entries = [...attempts.entries()];
+  const guideUpdate=Number.isSafeInteger(config.guideStep) && config.guideStep>=0 ? {guideStep:config.guideStep+1,lastGuidedMethod:config.mode} : {};
+  if (['learn','practice'].includes(kind)) return entries.length ? {...deck.coach,...guideUpdate} : deck.coach || {};
   if (entries.length !== deck.cards.length || deck.cards.some(card=>!attempts.has(card.id))) return deck.coach || {};
   const today = dateKey(now), correct = entries.filter(([,value])=>value).length;
   if (kind === 'final') return {...deck.coach, lastTest:{day:today,correct,total:deck.cards.length},
     passedAt:correct === deck.cards.length ? now.toISOString() : null,
     passedSignature:correct === deck.cards.length ? deckSignature(deck) : null,
     lastRevisionDay:correct === deck.cards.length ? today : deck.coach?.lastRevisionDay || null};
-  if (kind === 'revision') return {...deck.coach,lastRevisionDay:today};
+  if (kind === 'revision') return {...deck.coach,...guideUpdate,lastRevisionDay:today};
   return deck.coach || {};
 }

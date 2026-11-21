@@ -44,7 +44,7 @@ test('mathematical signs and grouping survive flexible punctuation marking',()=>
   assert.equal(assessAnswer('Chapter (1)','Chapter 1').correct,true);
 });
 test('repeated practice cannot erase independent recall evidence or launder a failed day',()=> {
-  const recall=['2026-11-19','2026-11-20','2026-11-21'].map(day=>({day,method:'type',correct:true,assisted:false}));
+  const recall=Array.from({length:9},(_,index)=>({day:['2026-11-19','2026-11-20','2026-11-21'][index%3],method:'type',correct:true,assisted:false,attemptId:`learned-${index}:0`}));
   const repeated=Array.from({length:10},()=>({day:'2026-11-21',method:'quiz',correct:true,assisted:false}));
   const learned={...base,seen:13,right:13,stability:6,reviewHistory:[...recall,...repeated]};
   assert.equal(cardMastery(learned,now).stage,'mature');

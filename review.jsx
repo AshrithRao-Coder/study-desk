@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { reviewPool, assessCardAnswer, normalizeAnswer, markingRules } from './study-engine.js';
+import { reviewPool, assessCardAnswer, normalizeAnswer, markingRules, canUseStudyMethod, distinctAnswerOptions } from './study-engine.js';
 import { overallPlan, recommendedMethod, scheduleForDeck, cardMastery } from './coach-engine.js';
 import { saveSession, clearSession } from './session-store.js';
 import { feedbackMessage } from './feedback.js';
@@ -19,17 +19,8 @@ export const METHODS = [
   ['boolean', 'True or false', 'Decide whether a question and answer belong together.'],
   ['match', 'Matching pairs', 'Match questions to answers in a small board.'],
 ];
-function supported(mode, cards, flip) {
-  if (mode === 'match') return cards.length >= 2;
-  if (!['quiz', 'boolean'].includes(mode)) return true;
-  const minimum = mode === 'quiz' ? 3 : mode === 'boolean' ? 1 : 0;
-  return cards.every(card => distinctOptions(card, cards, flip).length >= minimum);
-}
-function distinctOptions(card, cards, flip) {
-  const rules = card.marking;
-  const candidates = cards.map(other => answerFor(other, flip)).filter(value => !assessCardAnswer(value, card, flip).correct);
-  return candidates.filter((value, i) => candidates.findIndex(other => normalizeAnswer(other, rules) === normalizeAnswer(value, rules)) === i);
-}
+const supported=canUseStudyMethod;
+const distinctOptions=distinctAnswerOptions;
 export function StartReview({deck, onStart}) {
   const [mode, setMode] = useState('flip'), [scope, setScope] = useState('all');
   const [flip, setFlip] = useState(false), [limit, setLimit] = useState(20);
@@ -175,20 +166,23 @@ function RecallSession({deck, config, onEnd, onPause, patchCard, countReview, on
   </div>;
 }
 
-function MatchingSession({deck, config, onEnd, patchCard, countReview}) {
-  const [ids] = useState(() => poolFor(deck,config.scope).slice(0, config.limit).map(card => card.id));
+function MatchingSession({deck, config, onEnd, patchCard, countReview,onComplete}) {
+  const [sessionId]=useState(()=>globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
+  const [ids] = useState(() => (config.coachKind?overallPlan(deck):poolFor(deck,config.scope)).slice(0, config.limit).map(card => card.id));
   const [offset, setOffset] = useState(0), [count, setCount] = useState(0);
   const attempts = useRef(new Map());
   // Avoid a final one-pair board by including it with the preceding group.
   const size = ids.length - offset === 5 ? 5 : 4;
   const group = ids.slice(offset, offset + size).map(id => deck.cards.find(card => card.id === id)).filter(Boolean);
+  const completed=useRef(false);
+  useEffect(()=>{if (!group.length && !completed.current) {completed.current=true;onComplete?.(attempts.current);}},[offset]);
   const record = (card, correct) => {
     if (attempts.current.has(card.id)) return;
     attempts.current.set(card.id, correct);
-    patchCard(card.id, scheduleForDeck(deck,card,{correct,assisted:true,method:'match'}));
+    patchCard(card.id, scheduleForDeck(deck,card,{correct,assisted:true,method:'match',attemptId:`${sessionId}:${card.id}`}));
     countReview(); setCount(count => count + 1);
   };
-  if (!group.length) return <Summary attempts={attempts.current} count={count} onEnd={onEnd} />;
+  if (!group.length) return <Summary attempts={attempts.current} count={count} onEnd={onEnd} kind={config.coachKind} deck={deck} />;
   return <div className="review-session"><div className="session-toolbar"><span>{offset} / {ids.length} cards matched</span><Button onClick={onEnd}>End</Button></div><MatchBoard key={offset} cards={group} flip={config.flip} onAttempt={record} onNext={() => setOffset(offset => offset + group.length)} /></div>;
 }
 function MatchBoard({cards, flip, onAttempt, onNext}) {

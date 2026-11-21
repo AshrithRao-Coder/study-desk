@@ -144,6 +144,19 @@ export function assessCardAnswer(given, card, reverse = false) {
   return results.find(result => result.correct && !result.assisted) || results.find(result => result.correct) || {correct:false, assisted:false,near:answers.some(answer=>isNearAnswer(given,answer))};
 }
 
+export function distinctAnswerOptions(card,cards,reverse=false) {
+  const answerFor=other=>reverse?other.q:other.a;
+  const candidates=cards.map(answerFor).filter(value=>!assessCardAnswer(value,card,reverse).correct);
+  const seen=new Set();
+  return candidates.filter(value=>{const key=normalizeAnswer(value,card.marking);if (seen.has(key)) return false;seen.add(key);return true;});
+}
+export function canUseStudyMethod(mode,cards,reverse=false) {
+  if (mode==='match') return cards.length>=2;
+  if (!['quiz','boolean'].includes(mode)) return true;
+  const minimum=mode==='quiz'?3:1;
+  return cards.length>0 && cards.every(card=>distinctAnswerOptions(card,cards,reverse).length>=minimum);
+}
+
 // Feedback similarity does not relax the question's marking rules or award credit.
 export function isNearAnswer(given,expected) {
   const relaxed={caseSensitive:false,ignoreDiacritics:true,ignorePunctuation:true,ignoreExtraSpaces:true};

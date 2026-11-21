@@ -69,8 +69,10 @@ that screen remains open. Undo restores the saved card contents and review histo
 
 Each deck has a **Use study coach for this deck** switch in Review. It is off by default
 so existing decks retain manual method selection. When enabled, the coach recommends
-an adaptive session: flip cards for new and struggling
-cards, then unaided typing as evidence improves. A card-by-card overall plan shows
+guided sessions rotating through Flip the card, Multiple choice, Type the answer,
+Matching pairs and True or false. Cards needing practice appear first. Unsupported
+methods are skipped: multiple choice needs four distinct answers, true/false needs
+two distinct answers and matching needs two cards. A card-by-card overall plan shows
 each estimate, next review date and recommended method.
 
 Set an optional learning deadline. The coach shows the remaining days and an unfinished
@@ -83,11 +85,16 @@ memory strength and overdue reviews, rather than just interval lengths. Perfect 
 in recognition exercises alone do not make a card mature. When every card is mature,
 the coach offers a final test.
 
-Mastery uses the original, stricter weights: accuracy, independent unaided recall,
-review strength, missed attempts and overdue decay. Successful recall across separate
-sessions counts even on the same day, so there is no day-based mastery ceiling.
+Mastery now needs roughly three times the independent practice: at least nine successful
+sessions per card, including at least three unaided recall sessions, before a card becomes
+mature. Accuracy, memory strength, missed attempts and overdue decay still affect its score.
+Progress from recognition methods is supported by unaided recall, so repeatedly guessing
+multiple-choice or true/false answers cannot master a card on its own. Twelve perfect
+independent sessions can earn full practice credit; memory strength and mistakes also matter.
+Sessions can all take place on the same day: there is no day-based mastery ceiling.
 Retries inside one session count as one source of evidence, and a failed session does
 not erase successful sessions from earlier that day. Scores recalculate from saved history.
+Completing a guided session advances and saves the rotation, including matching boards.
 
 The final test asks every question once using unaided typed answers and each question's
 marking rules. No hints, same-test retries or answer feedback are given until it ends.
@@ -101,7 +108,7 @@ has passed. Optional practice preserves your test result and daily revision stat
 
 Changing a question, answer or marking rules resets that card's learning evidence and
 invalidates a previous deck pass. Resetting review history also clears the final-test
-and daily-revision status. Library backups preserve coach settings and progress.
+and daily-revision status and restarts the guide rotation. Library backups preserve coach settings and progress.
 
 ## Files
 

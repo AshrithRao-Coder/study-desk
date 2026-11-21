@@ -163,6 +163,36 @@ try {
   assert.match(flipping.window.document.body.textContent,/Session done/);
   const flippedResult=JSON.parse(flipping.window.localStorage.getItem('study:decks'))[0].cards[0];
   assert.equal(flippedResult.seen,2);assert.equal(flippedResult.right,1);assert.equal(flippedResult.interval,1);
+  async function finishGuidedRound(driver,sourceCards) {
+    for (let action=0;action<1000;action++) {
+      const question=driver.window.document.querySelector('.question-text');
+      if (question) {
+        const answer=sourceCards.find(card=>card.q===question.textContent)?.a;
+        assert.ok(answer,'Guided question belongs to the selected deck');
+        const label=driver.window.document.querySelector('.exercise-label').textContent;
+        if (label==='Flip the card') {driver.window.document.querySelector('.flip-card').click();await tick();await driver.click('I remembered it');}
+        else if (label==='Multiple choice') await driver.click(answer);
+        else if (label==='True or false') await driver.click(driver.window.document.querySelector('.proposed-answer strong').textContent===answer?'True':'False');
+        else {await driver.fill(driver.window.document.querySelector('#recall-answer'),answer);await driver.click('Check answer');}
+        if (driver.window.document.querySelector('.answer-feedback')) await driver.click('Continue');
+        continue;
+      }
+      const board=driver.window.document.querySelector('.match-board');
+      if (board) {
+        const question=[...board.children[0].querySelectorAll('button')].find(button=>!button.disabled);
+        if (question) {
+          const card=sourceCards.find(card=>card.q===question.textContent);
+          question.click();await tick();
+          const answer=[...board.children[1].querySelectorAll('button')].find(button=>!button.disabled && button.textContent===card.a);
+          assert.ok(answer,'Matching answer is available');answer.click();await tick();
+        } else await driver.click('Continue');
+        continue;
+      }
+      assert.match(driver.window.document.body.textContent,/Session done|Final test passed|Final test complete/);
+      return;
+    }
+    assert.fail('Guided session did not finish');
+  }
   const strict = {caseSensitive:true,ignoreDiacritics:false,ignorePunctuation:false,allowTypos:false,ignoreExtraSpaces:false};
   const reveal=await bootStudy([seed(0,'Paris')]);
   await reveal.start('Type the answer');
@@ -231,6 +261,7 @@ try {
   const reset = JSON.parse(type.window.localStorage.getItem('study:decks'))[0].cards;
   assert.ok(reset.every(card=>card.seen===0 && card.lastReviewDay===undefined && card.stability===undefined), 'Reset clears automatic scheduling history');
   assert.deepEqual(reset[0].marking,strict,'Reset retains per-question marking rules');
+  assert.equal(JSON.parse(type.window.localStorage.getItem('study:decks'))[0].coach.guideStep,0,'Reset also restarts the guide rotation');
 
   const format = await bootStudy([seed(0,'café',{marking:{ignoreDiacritics:true},acceptedAnswers:['coffee'],tags:['French']})]);
   await format.click('Import / export');
@@ -245,7 +276,7 @@ try {
 
   const today = dateKey(new Date());
   const pastDay = days=>{const date=new Date(); date.setDate(date.getDate()+days); return dateKey(date);};
-  const learned = (id,answer)=>seed(id,answer,{seen:3,right:3,next:today,interval:6,stability:6,reviewHistory:[-2,-1,0].map(days=>({day:pastDay(days),correct:true,assisted:false,method:'type'}))});
+  const learned = (id,answer)=>seed(id,answer,{seen:3,right:3,next:today,interval:6,stability:6,reviewHistory:Array.from({length:9},(_,index)=>({day:pastDay([-2,-1,0][index%3]),correct:true,assisted:false,method:'type',attemptId:`learned-${index}:0`}))});
   const prepared=[learned(0,'Paris'),learned(1,'Tokyo')];
   const coached=await bootStudy(prepared,{enabled:true,deadline:pastDay(2)});
   assert.equal(coached.window.document.querySelectorAll('.method-button').length,0,'Coach recommends instead of asking for a method');
@@ -270,21 +301,13 @@ try {
 
   const daily=await bootStudy(passedDeck.cards,{...passedDeck.coach,lastRevisionDay:pastDay(-1)});
   await daily.click('Start daily revision');
-  for (let i=0;i<prepared.length;i++) {
-    const question=daily.window.document.querySelector('.question-text').textContent;
-    await daily.fill(daily.window.document.querySelector('#recall-answer'),prepared.find(card=>card.q===question).a);
-    await daily.click('Check answer'); await daily.click('Continue');
-  }
+  await finishGuidedRound(daily,prepared);
   await daily.click('Back to deck');
   assert.equal(JSON.parse(daily.window.localStorage.getItem('study:decks'))[0].coach.lastRevisionDay,today);
   assert.equal(daily.allButtons().find(button=>button.textContent==='Start daily revision').disabled,true);
   const previousResult=JSON.parse(daily.window.localStorage.getItem('study:decks'))[0].coach;
   await daily.click('Continue guided practice');
-  for (let i=0;i<prepared.length;i++) {
-    const question=daily.window.document.querySelector('.question-text').textContent;
-    await daily.fill(daily.window.document.querySelector('#recall-answer'),prepared.find(card=>card.q===question).a);
-    await daily.click('Check answer');await daily.click('Continue');
-  }
+  await finishGuidedRound(daily,prepared);
   await daily.click('Back to deck');
   const afterPractice=JSON.parse(daily.window.localStorage.getItem('study:decks'))[0].coach;
   assert.equal(afterPractice.passedAt,previousResult.passedAt);
@@ -417,28 +440,31 @@ try {
     await lastTry.click('Continue');
   }
   assert.match(lastTry.window.document.body.textContent,/Session done/);
-  const sameDay=await bootStudy([seed(0,'Paris'),seed(1,'Tokyo')],{enabled:true});
-  for (let session=0;session<3;session++) {
+  const guideCards=[seed(0,'Paris'),seed(1,'Tokyo'),seed(2,'Rome'),seed(3,'Madrid')];
+  const allMethods=await bootStudy(guideCards,{enabled:true});
+  const guidedModes=[];
+  for (let session=0;session<5;session++) {
+    await allMethods.click('Start recommended session');
+    guidedModes.push(allMethods.window.document.querySelector('.exercise-label')?.textContent || 'Matching pairs');
+    await finishGuidedRound(allMethods,guideCards);
+    await allMethods.click('Back to deck');
+  }
+  assert.deepEqual(guidedModes,['Flip the card','Multiple choice','Type the answer','Matching pairs','True or false']);
+  assert.equal(JSON.parse(allMethods.window.localStorage.getItem('study:decks'))[0].coach.guideStep,5,'Every completed guided mode advances the rotation');
+  const sameCards=[seed(0,'Paris'),seed(1,'Tokyo')];
+  const sameDay=await bootStudy(sameCards,{enabled:true});
+  for (let session=0;session<9;session++) {
     await sameDay.click('Start recommended session');
-    for (let question=0;question<2;question++) {
-      if (session===0) {sameDay.window.document.querySelector('.flip-card').click();await tick();await sameDay.click('I remembered it');}
-      else {
-        const prompt=sameDay.window.document.querySelector('.question-text').textContent;
-        await sameDay.fill(sameDay.window.document.querySelector('#recall-answer'),prompt==='Question 0'?'Paris':'Tokyo');
-        await sameDay.click('Check answer');
-      }
-      await sameDay.click('Continue');
-    }
+    await finishGuidedRound(sameDay,sameCards);
     await sameDay.click('Back to deck');
+    if (session<8) assert.ok(sameDay.allButtons().some(button=>button.textContent==='Start recommended session'),'Mastery needs more than a few perfect sessions');
   }
   await sameDay.click('Start final test');
-  for (let question=0;question<2;question++) {
-    const prompt=sameDay.window.document.querySelector('.question-text').textContent;
-    await sameDay.fill(sameDay.window.document.querySelector('#recall-answer'),prompt==='Question 0'?'Paris':'Tokyo');
-    await sameDay.click('Check answer');
+  await finishGuidedRound(sameDay,sameCards);await sameDay.click('Back to deck');
+  for (let session=0;session<2;session++) {
+    await sameDay.click('Continue guided practice');await finishGuidedRound(sameDay,sameCards);await sameDay.click('Back to deck');
   }
-  await sameDay.click('Back to deck');
-  assert.equal(sameDay.window.document.querySelector('.coach-metrics strong').textContent,'100%','A perfect two-card deck reaches full mastery on the same day');
+  assert.equal(sameDay.window.document.querySelector('.coach-metrics strong').textContent,'100%','Full mastery remains achievable on the same day after enough independent practice');
   console.log('StudyDesk: five methods, diacritics, export/import, mastery, coach, final tests, daily revision, deadlines and backups passed');
 } finally {
   for (const window of windows) await window.happyDOM.close();
