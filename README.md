@@ -83,13 +83,11 @@ memory strength and overdue reviews, rather than just interval lengths. Perfect 
 in recognition exercises alone do not make a card mature. When every card is mature,
 the coach offers a final test.
 
-Mastery gives earlier credit for successful recall and applies a smaller penalty for an
-isolated mistake. A miss does not erase earlier successes from the same day, repeated
-misses that day share one percentage penalty, and overdue decay is gentler. Cards still
-need unaided recall across separate sessions and a successful recovery after a mistake to become mature.
-Perfect unaided recall in three independent sessions can reach 100% on the same day.
-Retries within one session count as one source of evidence. Older records without session
-identifiers retain their original dated evidence; existing scores recalculate automatically.
+Mastery uses the original, stricter weights: accuracy, independent unaided recall,
+review strength, missed attempts and overdue decay. Successful recall across separate
+sessions counts even on the same day, so there is no day-based mastery ceiling.
+Retries inside one session count as one source of evidence, and a failed session does
+not erase successful sessions from earlier that day. Scores recalculate from saved history.
 
 The final test asks every question once using unaided typed answers and each question's
 marking rules. No hints, same-test retries or answer feedback are given until it ends.
@@ -97,7 +95,9 @@ Only a complete test with 100% correct passes the deck. Interrupted tests cannot
 failed tests send missed questions back to practice. After passing, one complete revision
 session per day is offered until the optional deadline, inclusive. Without a deadline,
 daily revision continues. These prompts appear when you open the deck; the app does
-not send background notifications.
+not send background notifications. After any completed final test, **Continue guided practice**
+lets you keep using the coach, including after daily revision is complete or the deadline
+has passed. Optional practice preserves your test result and daily revision status.
 
 Changing a question, answer or marking rules resets that card's learning evidence and
 invalidates a previous deck pass. Resetting review history also clears the final-test
@@ -184,3 +184,11 @@ Simple `question | answer` lines remain supported. Text containing a pipe, quote
 newline is JSON-quoted by the exporter. Invalid imports report the line number and
 leave the deck unchanged. Text export does not include coach settings, deadlines,
 final-test results or review history; use a library backup for those.
+
+## Render deployment
+
+Create a Static Site using this repository, with a blank Root Directory, build command
+`npm install && npm run build` and Publish Directory `dist`. `npm build` is not a valid
+command. The included `render.yaml` supplies these settings for Blueprint deployments.
+If an existing site was created manually, update its Build Command in the Render dashboard;
+adding a Blueprint file does not replace a manually configured command automatically.

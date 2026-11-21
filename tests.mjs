@@ -278,6 +278,18 @@ try {
   await daily.click('Back to deck');
   assert.equal(JSON.parse(daily.window.localStorage.getItem('study:decks'))[0].coach.lastRevisionDay,today);
   assert.equal(daily.allButtons().find(button=>button.textContent==='Start daily revision').disabled,true);
+  const previousResult=JSON.parse(daily.window.localStorage.getItem('study:decks'))[0].coach;
+  await daily.click('Continue guided practice');
+  for (let i=0;i<prepared.length;i++) {
+    const question=daily.window.document.querySelector('.question-text').textContent;
+    await daily.fill(daily.window.document.querySelector('#recall-answer'),prepared.find(card=>card.q===question).a);
+    await daily.click('Check answer');await daily.click('Continue');
+  }
+  await daily.click('Back to deck');
+  const afterPractice=JSON.parse(daily.window.localStorage.getItem('study:decks'))[0].coach;
+  assert.equal(afterPractice.passedAt,previousResult.passedAt);
+  assert.equal(afterPractice.lastRevisionDay,previousResult.lastRevisionDay);
+  assert.ok(daily.allButtons().some(button=>button.textContent==='Continue guided practice' && !button.disabled),'Guided practice stays available after finishing optional practice');
 
   const failed=await bootStudy(prepared,{enabled:true});
   await failed.click('Start final test');
@@ -290,6 +302,10 @@ try {
   assert.equal(JSON.parse(failed.window.localStorage.getItem('study:decks'))[0].coach.lastTest.total,2,'Failed final has no retries');
   await failed.click('Back to deck');
   assert.ok(failed.allButtons().some(button=>button.textContent==='Start recommended session'),'Failed final returns to learning');
+  assert.ok(failed.allButtons().some(button=>button.textContent==='Continue guided practice' && !button.disabled),'Guided practice also remains available after a failed final test');
+  const pastDeadline=await bootStudy(passedDeck.cards,{...passedDeck.coach,deadline:pastDay(-1)});
+  assert.equal(pastDeadline.allButtons().find(button=>button.textContent==='Start daily revision').disabled,true);
+  assert.ok(pastDeadline.allButtons().some(button=>button.textContent==='Continue guided practice' && !button.disabled),'Passing the deadline stops reminders but does not disable voluntary guided practice');
 
   const interrupted=await bootStudy(prepared,{enabled:true});
   await interrupted.click('Start final test');
@@ -402,7 +418,7 @@ try {
   }
   assert.match(lastTry.window.document.body.textContent,/Session done/);
   const sameDay=await bootStudy([seed(0,'Paris'),seed(1,'Tokyo')],{enabled:true});
-  for (let session=0;session<2;session++) {
+  for (let session=0;session<3;session++) {
     await sameDay.click('Start recommended session');
     for (let question=0;question<2;question++) {
       if (session===0) {sameDay.window.document.querySelector('.flip-card').click();await tick();await sameDay.click('I remembered it');}

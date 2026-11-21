@@ -38,25 +38,22 @@ test('coach unlocks the final test only when every card has mastery evidence',()
   assert.equal(coachStatus({...deck,cards:[learned,basic]},now).ready,false);
   assert.equal(coachStatus({cards:[],coach:{}},now).ready,false);
 });
-test('mastery gives earlier credit and treats an isolated mistake more gently',()=> {
-  const first={...basic,seen:1,right:1,stability:1,reviewHistory:[{day:'2026-11-20',correct:true,assisted:false,method:'type'}]};
-  assert.ok(cardMastery(first,now).score>=60,'One successful recall earns useful progress');
-  assert.notEqual(cardMastery(first,now).stage,'mature','One day alone is not enough to master a card');
-  const second={...first,seen:2,right:2,reviewHistory:[...first.reviewHistory,{day:'2026-11-21',correct:true,assisted:false,method:'type'}]};
-  assert.equal(cardMastery(second,now).stage,'mature','Successful recall on a second day can reach maturity');
-  const missed={...learned,seen:4,right:3,stability:1,next:'2026-11-22',reviewHistory:[...learned.reviewHistory,{day:'2026-11-21',correct:false,assisted:false,method:'type'}]};
-  const before=cardMastery(learned,now),after=cardMastery(missed,now);
-  assert.equal(after.recallDays,before.recallDays,'A slip does not erase earlier recall evidence');
-  assert.ok(before.score-after.score<=15,'A single slip has a limited percentage penalty');
-  assert.ok(after.score>=80,'Established progress remains visible');
-  assert.notEqual(after.stage,'mature','The missed card still needs a successful recovery');
+test('mastery restores the original accuracy, strength and mistake weights',()=> {
+  const first={...basic,seen:1,right:1,stability:1,reviewHistory:[{day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:'first:0'}]};
+  assert.equal(cardMastery(first,now).score,56);
+  const third={...first,seen:3,right:3,reviewHistory:[1,2,3].map(index=>({...first.reviewHistory[0],attemptId:`session-${index}:0`}))};
+  assert.equal(cardMastery(third,now).score,96);
+  const missed={...third,seen:4,right:3,reviewHistory:[...third.reviewHistory,{day:'2026-11-21',correct:false,assisted:false,method:'type',attemptId:'missed:0'}]};
+  assert.equal(cardMastery(missed,now).score,79);
+  assert.equal(cardMastery(missed,now).recallSessions,3,'One missed session does not cancel earlier successful sessions that day');
+  assert.notEqual(cardMastery(missed,now).stage,'mature');
 });
 test('a two-card deck can reach full mastery through separate perfect sessions on the same day',()=> {
-  const history=Array.from({length:3},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
+  const history=Array.from({length:4},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
   const card={...basic,seen:3,right:3,stability:1,reviewHistory:history};
   const deck={cards:[card,{...card,id:'b'}],coach:{enabled:true}};
   assert.equal(cardMastery(card,now).recallDays,1);
-  assert.equal(cardMastery(card,now).recallSessions,3);
+  assert.equal(cardMastery(card,now).recallSessions,4);
   assert.equal(cardMastery(card,now).score,100);
   assert.equal(coachStatus(deck,now).score,100);
   assert.equal(coachStatus(deck,now).ready,true);
@@ -86,6 +83,11 @@ test('passed decks request one complete daily revision and stop after the option
   assert.equal(coachStatus(passed,new Date(2026,10,23,12)).maintenanceEnded,true);
   const noDeadline={...passed,coach:{...coach,deadline:null}};
   assert.equal(coachStatus(noDeadline,new Date(2026,11,30,12)).revisionDue,true);
+});
+test('optional guided practice preserves the final test and daily revision record',()=> {
+  const deck={cards:[learned],coach:{enabled:true,deadline:'2026-11-21'}};
+  const passed={...deck,coach:finishCoachSession(deck,'final',new Map([['a',true]]),now)};
+  assert.deepEqual(finishCoachSession(passed,'practice',new Map([['a',false]]),now),passed.coach);
 });
 test('the deadline constrains coached review dates without affecting manual schedules',()=> {
   const card={...learned,next:'2026-11-21'};
