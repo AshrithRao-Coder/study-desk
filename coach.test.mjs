@@ -38,6 +38,19 @@ test('coach unlocks the final test only when every card has mastery evidence',()
   assert.equal(coachStatus({...deck,cards:[learned,basic]},now).ready,false);
   assert.equal(coachStatus({cards:[],coach:{}},now).ready,false);
 });
+test('mastery gives earlier credit and treats an isolated mistake more gently',()=> {
+  const first={...basic,seen:1,right:1,stability:1,reviewHistory:[{day:'2026-11-20',correct:true,assisted:false,method:'type'}]};
+  assert.ok(cardMastery(first,now).score>=60,'One successful recall earns useful progress');
+  assert.notEqual(cardMastery(first,now).stage,'mature','One day alone is not enough to master a card');
+  const second={...first,seen:2,right:2,reviewHistory:[...first.reviewHistory,{day:'2026-11-21',correct:true,assisted:false,method:'type'}]};
+  assert.equal(cardMastery(second,now).stage,'mature','Successful recall on a second day can reach maturity');
+  const missed={...learned,seen:4,right:3,stability:1,next:'2026-11-22',reviewHistory:[...learned.reviewHistory,{day:'2026-11-21',correct:false,assisted:false,method:'type'}]};
+  const before=cardMastery(learned,now),after=cardMastery(missed,now);
+  assert.equal(after.recallDays,before.recallDays,'A slip does not erase earlier recall evidence');
+  assert.ok(before.score-after.score<=15,'A single slip has a limited percentage penalty');
+  assert.ok(after.score>=80,'Established progress remains visible');
+  assert.notEqual(after.stage,'mature','The missed card still needs a successful recovery');
+});
 test('all questions and full marks are required to pass; edits invalidate the pass',()=> {
   const deck={cards:[learned,{...learned,id:'b'}],coach:{enabled:true}};
   assert.equal(finishCoachSession(deck,'final',new Map([['a',true]]),now).passedAt,undefined);

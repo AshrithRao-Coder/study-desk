@@ -80,8 +80,13 @@ An overdue deadline does not lock you out of learning.
 Progress levels are **New**, **Needs lots of practice**, **Learning**, **Young** and
 **Mature**. They are calculated from recent accuracy, unaided recall on separate days,
 memory strength and overdue reviews, rather than just interval lengths. Perfect scores
-in recognition or hinted exercises alone do not make a card mature. When every card
-is mature, the coach offers a final test.
+in recognition exercises alone do not make a card mature. When every card is mature,
+the coach offers a final test.
+
+Mastery gives earlier credit for successful recall and applies a smaller penalty for an
+isolated mistake. A miss does not erase earlier successes from the same day, repeated
+misses that day share one percentage penalty, and overdue decay is gentler. Cards still
+need unaided recall on separate days and a successful recovery after a mistake to become mature.
 
 The final test asks every question once using unaided typed answers and each question's
 marking rules. No hints, same-test retries or answer feedback are given until it ends.
