@@ -51,6 +51,20 @@ test('mastery gives earlier credit and treats an isolated mistake more gently',(
   assert.ok(after.score>=80,'Established progress remains visible');
   assert.notEqual(after.stage,'mature','The missed card still needs a successful recovery');
 });
+test('a two-card deck can reach full mastery through separate perfect sessions on the same day',()=> {
+  const history=Array.from({length:3},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
+  const card={...basic,seen:3,right:3,stability:1,reviewHistory:history};
+  const deck={cards:[card,{...card,id:'b'}],coach:{enabled:true}};
+  assert.equal(cardMastery(card,now).recallDays,1);
+  assert.equal(cardMastery(card,now).recallSessions,3);
+  assert.equal(cardMastery(card,now).score,100);
+  assert.equal(coachStatus(deck,now).score,100);
+  assert.equal(coachStatus(deck,now).ready,true);
+  assert.equal(coachStatus(deck,now).passed,false,'Mastery alone does not replace the final test');
+  const singleSession={...card,reviewHistory:history.map((entry,index)=>({...entry,attemptId:`same-session:${index}`}))};
+  assert.equal(cardMastery(singleSession,now).recallSessions,1);
+  assert.notEqual(cardMastery(singleSession,now).stage,'mature','Retries inside one session are not independent sessions');
+});
 test('all questions and full marks are required to pass; edits invalidate the pass',()=> {
   const deck={cards:[learned,{...learned,id:'b'}],coach:{enabled:true}};
   assert.equal(finishCoachSession(deck,'final',new Map([['a',true]]),now).passedAt,undefined);

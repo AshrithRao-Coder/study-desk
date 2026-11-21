@@ -7,7 +7,7 @@ export function cardMastery(card, now = new Date()) {
   const history = (Array.isArray(card.reviewHistory) ? card.reviewHistory : []).filter(entry => entry && typeof entry.correct === 'boolean' && isDateKey(entry.day));
   const recent = history.slice(-8);
   const seen = Number(card.seen) || 0;
-  if (!seen && !recent.length) return {score:0, stage:'new', recallDays:0, misses:0};
+  if (!seen && !recent.length) return {score:0, stage:'new', recallDays:0, recallSessions:0, misses:0};
   const misses = recent.length ? recent.filter(entry => !entry.correct).length : Math.max(0, seen-(Number(card.right)||0));
   const correct=recent.length ? recent.filter(entry=>entry.correct).length : Math.max(0,Math.min(seen,Number(card.right)||0));
   const sampleSize=recent.length || seen;
@@ -17,18 +17,23 @@ export function cardMastery(card, now = new Date()) {
   // A later mistake does not erase successful recall from earlier that day.
   const recall = history.filter(unaided);
   const recallDays = new Set(recall.map(entry => entry.day)).size;
-  const strength = Math.min(18,Math.max((Number(card.stability ?? card.interval)||0)*1.5,Math.min(12,recallDays*4)));
+  const evidenceKey=entry=>typeof entry.attemptId==='string' && entry.attemptId.lastIndexOf(':')>0
+    ? `session:${entry.attemptId.slice(0,entry.attemptId.lastIndexOf(':'))}` : `day:${entry.day}`;
+  // New records distinguish sessions; old records retain their dated evidence.
+  const recallSessions=new Set(recall.map(evidenceKey)).size;
+  const evidence=Math.min(3,recallSessions);
+  const strength = Math.min(18,Math.max((Number(card.stability ?? card.interval)||0)*1.5,evidence*6));
   const overdue = isDateKey(card.next) ? Math.max(0,dayNumber(dateKey(now))-dayNumber(card.next)) : 0;
   const decay = Math.min(10,overdue/Math.max(1,Number(card.stability ?? card.interval)||1)*2.5);
   const missedDays=new Set(recent.filter(entry=>!entry.correct).map(entry=>entry.day)).size;
   const penalty=recent.length ? Math.min(9,missedDays*3) : Math.min(9,misses*3);
-  const score = Math.round(Math.max(0,Math.min(100,recentAccuracy*45 + Math.min(2,recallDays)*12.5 + Math.min(3,recall.length)*4 + strength - penalty - decay)));
+  const score = Math.round(Math.max(0,Math.min(100,recentAccuracy*45 + Math.min(2,recallSessions)*12.5 + evidence*4 + strength - penalty - decay)));
   const rawAccuracy=sampleSize ? correct/sampleSize : 0;
   const struggling = (misses >= 2 && rawAccuracy < .7) || (!recent.length && seen >= 3 && rawAccuracy < .5);
   const lastMiss=history.findLastIndex(entry=>!entry.correct);
   const recovered=lastMiss<0 || history.slice(lastMiss+1).some(unaided);
-  const stage = struggling ? 'needsPractice' : score >= 80 && recallDays >= 2 && recovered && recent.slice(-2).every(entry=>entry.correct) ? 'mature' : score >= 60 ? 'young' : 'learning';
-  return {score,stage,recallDays,misses};
+  const stage = struggling ? 'needsPractice' : score >= 80 && recallSessions >= 2 && recovered && recent.slice(-2).every(entry=>entry.correct) ? 'mature' : score >= 60 ? 'young' : 'learning';
+  return {score,stage,recallDays,recallSessions,misses};
 }
 export function masteryCounts(cards, now = new Date()) {
   const counts = Object.fromEntries(STAGES.map(stage=>[stage,0]));

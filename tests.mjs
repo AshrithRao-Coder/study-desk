@@ -401,6 +401,28 @@ try {
     await lastTry.click('Continue');
   }
   assert.match(lastTry.window.document.body.textContent,/Session done/);
+  const sameDay=await bootStudy([seed(0,'Paris'),seed(1,'Tokyo')],{enabled:true});
+  for (let session=0;session<2;session++) {
+    await sameDay.click('Start recommended session');
+    for (let question=0;question<2;question++) {
+      if (session===0) {sameDay.window.document.querySelector('.flip-card').click();await tick();await sameDay.click('I remembered it');}
+      else {
+        const prompt=sameDay.window.document.querySelector('.question-text').textContent;
+        await sameDay.fill(sameDay.window.document.querySelector('#recall-answer'),prompt==='Question 0'?'Paris':'Tokyo');
+        await sameDay.click('Check answer');
+      }
+      await sameDay.click('Continue');
+    }
+    await sameDay.click('Back to deck');
+  }
+  await sameDay.click('Start final test');
+  for (let question=0;question<2;question++) {
+    const prompt=sameDay.window.document.querySelector('.question-text').textContent;
+    await sameDay.fill(sameDay.window.document.querySelector('#recall-answer'),prompt==='Question 0'?'Paris':'Tokyo');
+    await sameDay.click('Check answer');
+  }
+  await sameDay.click('Back to deck');
+  assert.equal(sameDay.window.document.querySelector('.coach-metrics strong').textContent,'100%','A perfect two-card deck reaches full mastery on the same day');
   console.log('StudyDesk: five methods, diacritics, export/import, mastery, coach, final tests, daily revision, deadlines and backups passed');
 } finally {
   for (const window of windows) await window.happyDOM.close();
