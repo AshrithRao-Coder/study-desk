@@ -1,0 +1,21 @@
+// Caches the app so it opens with no signal. Bump CACHE when you publish changes.
+const CACHE = "study-desk-6f1d743e1d3b174f";
+const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+});
+self.addEventListener("activate", (e) => {
+  e.waitUntil(caches.keys().then((keys) =>
+    Promise.all(keys.filter((k) => k.startsWith("study-desk-") && k !== CACHE).map((k) => caches.delete(k)))
+  ).then(() => self.clients.claim()));
+});
+self.addEventListener("fetch", (e) => {
+  if (e.request.method !== "GET" || new URL(e.request.url).origin !== self.location.origin) return;
+  e.respondWith(
+    caches.match(e.request).then((hit) => hit || fetch(e.request).catch((error) => {
+      if (e.request.mode === "navigate") return caches.match("./index.html");
+      throw error;
+    }))
+  );
+});
