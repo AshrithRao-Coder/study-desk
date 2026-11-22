@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assessAnswer, markingRules } from './study-engine.js';
-import { cardMastery, masteryCounts, needsAnotherLook, coachStatus, deckSignature, recommendedMethod, overallPlan, scheduleForDeck, finishCoachSession, guidedMethod } from './coach-engine.js';
+import { cardMastery, masteryCounts, needsAnotherLook, coachStatus, deckSignature, recommendedMethod, overallPlan, scheduleForDeck, finishCoachSession, guidedMethod, MASTERY_POLICY } from './coach-engine.js';
 import { serializeCards, parseCardLines } from './card-format.js';
 
+const testReady=deck=>({...deck,coach:{...deck.coach,masteryVersion:MASTERY_POLICY.version,testsSignature:deckSignature(deck),testPasses:1,recallChecksSinceTest:1}});
 const now=new Date(2026,10,21,12);
 const basic={id:'a',q:'Capital?',a:'Paris',tags:[],seen:0,right:0,next:'2026-11-21',interval:0,lapses:0,reps:0};
-const learned={...basic,seen:9,right:9,interval:6,stability:6,reviewHistory:Array.from({length:9},(_,index)=>({day:['2026-11-19','2026-11-20','2026-11-21'][index%3],correct:true,assisted:false,method:'type',attemptId:`learned-${index}:0`}))};
+const learned={...basic,seen:9,right:9,interval:6,stability:6,reviewHistory:Array.from({length:16},(_,index)=>({day:['2026-11-19','2026-11-20','2026-11-21'][index%3],correct:true,assisted:false,method:'type',attemptId:`learned-${index}:0`}))};
 test('diacritics are independent of case, punctuation and typo tolerance',()=> {
   for (const [a,b] of [['cafe','café'],['nino','niño'],['uber','über'],['francais','français']]) {
     assert.equal(assessAnswer(a,b).correct,false);
@@ -38,37 +39,73 @@ test('coach unlocks the final test only when every card has mastery evidence',()
   assert.equal(coachStatus({...deck,cards:[learned,basic]},now).ready,false);
   assert.equal(coachStatus({cards:[],coach:{}},now).ready,false);
 });
-test('mastery needs three times the independent practice with strict mistake weights',()=> {
+test('early mastery increases gradually and mistakes still matter',()=> {
   const first={...basic,seen:1,right:1,stability:1,reviewHistory:[{day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:'first:0'}]};
-  assert.equal(cardMastery(first,now).score,42);
+  assert.equal(cardMastery(first,now).score,14);
   const third={...first,seen:3,right:3,reviewHistory:[1,2,3].map(index=>({...first.reviewHistory[0],attemptId:`session-${index}:0`}))};
-  assert.equal(cardMastery(third,now).score,56);
+  assert.equal(cardMastery(third,now).score,35);
   const missed={...third,seen:4,right:3,reviewHistory:[...third.reviewHistory,{day:'2026-11-21',correct:false,assisted:false,method:'type',attemptId:'missed:0'}]};
-  assert.equal(cardMastery(missed,now).score,39);
+  assert.equal(cardMastery(missed,now).score,27);
   assert.equal(cardMastery(missed,now).recallSessions,3,'One missed session does not cancel earlier successful sessions that day');
   assert.notEqual(cardMastery(missed,now).stage,'mature');
 });
-test('a two-card deck can reach full mastery through separate perfect sessions on the same day',()=> {
-  const history=Array.from({length:12},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
+
+test('flipping alone cannot masquerade as verified recall',()=> {
+  const first={...basic,seen:1,right:1,reviewHistory:[{day:'2026-11-21',correct:true,method:'flip',attemptId:'first:0'}]};
+  assert.equal(cardMastery(first,now).score,3);
+  const flips={...first,reviewHistory:Array.from({length:50},(_,i)=>({...first.reviewHistory[0],attemptId:`flip-${i}:0`}))};
+  assert.ok(cardMastery(flips,now).score<=15);
+  assert.equal(cardMastery(flips,now).recallSessions,0);
+  assert.notEqual(cardMastery(flips,now).stage,'mature');
+});
+
+test('two knowledge checks require a separate recall check and failures preserve earlier progress',()=> {
+  let deck={cards:[learned,{...learned,id:'b'}],coach:{enabled:true}};
+  const perfect=new Map([['a',true],['b',true]]);
+  for(let round=1;round<=2;round++) {
+    deck={...deck,coach:finishCoachSession(deck,'final',perfect,now)};
+    assert.equal(coachStatus(deck,now).testPasses,round);
+    assert.equal(coachStatus(deck,now).passed,round===2);
+    if(round<2) {
+      assert.equal(coachStatus(deck,now).testAvailable,false);
+      assert.deepEqual(finishCoachSession(deck,'final',perfect,now),deck.coach,'Immediate retesting earns no extra pass');
+      const recognition=finishCoachSession(deck,'practice',perfect,now,{mode:'quiz'});
+      assert.equal(recognition.recallChecksSinceTest,0);
+      const partial=finishCoachSession(deck,'practice',new Map([['a',true]]),now,{mode:'type'});
+      assert.equal(partial.recallChecksSinceTest,0);
+      for(let check=0;check<1;check++) deck={...deck,coach:finishCoachSession(deck,'practice',perfect,now,{mode:'type'})};
+      assert.equal(coachStatus(deck,now).testAvailable,true);
+    }
+  }
+  const ready=testReady({...deck,coach:{enabled:true}});
+  const failed=finishCoachSession(ready,'final',new Map([['a',true],['b',false]]),now);
+  assert.equal(failed.testPasses,1);assert.equal(failed.passedAt,null);
+  const legacy={...deck,coach:{passedAt:now.toISOString(),passedSignature:deckSignature(deck)}};
+  assert.equal(coachStatus(legacy,now).passed,false,'Old one-test passes do not bypass the new standard');
+  const previousStandard={...deck,coach:{...deck.coach,masteryVersion:3,testPasses:3}};
+  assert.equal(coachStatus(previousStandard,now).passed,true,'Previously completed stricter test series are kept');
+});
+test('same-day practice can unlock tests but cannot skip the test series',()=> {
+  const history=Array.from({length:16},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
   const card={...basic,seen:3,right:3,stability:1,reviewHistory:history};
   const deck={cards:[card,{...card,id:'b'}],coach:{enabled:true}};
   assert.equal(cardMastery(card,now).recallDays,1);
-  assert.equal(cardMastery(card,now).recallSessions,12);
-  assert.equal(cardMastery(card,now).score,100);
-  assert.equal(coachStatus(deck,now).score,100);
+  assert.equal(cardMastery(card,now).recallSessions,16);
+  assert.equal(cardMastery(card,now).score,84);
+  assert.equal(coachStatus(deck,now).score,84);
   assert.equal(coachStatus(deck,now).ready,true);
   assert.equal(coachStatus(deck,now).passed,false,'Mastery alone does not replace the final test');
   const singleSession={...card,reviewHistory:history.map((entry,index)=>({...entry,attemptId:`same-session:${index}`}))};
   assert.equal(cardMastery(singleSession,now).recallSessions,1);
   assert.notEqual(cardMastery(singleSession,now).stage,'mature','Retries inside one session are not independent sessions');
 });
-test('mastery needs nine independent successful sessions and does not rely on recognition alone',()=> {
-  const history=Array.from({length:9},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
+test('recognition alone cannot replace reliable typed recall',()=> {
+  const history=Array.from({length:16},(_,index)=>({day:'2026-11-21',correct:true,assisted:false,method:'type',attemptId:`practice-${index}:0`}));
   const card={...basic,seen:9,right:9,stability:1,reviewHistory:history};
-  assert.notEqual(cardMastery({...card,reviewHistory:history.slice(0,8)},now).stage,'mature');
+  assert.notEqual(cardMastery({...card,reviewHistory:history.slice(0,3)},now).stage,'mature');
   assert.equal(cardMastery(card,now).stage,'mature');
   assert.notEqual(cardMastery({...card,reviewHistory:history.map(entry=>({...entry,method:'quiz'}))},now).stage,'mature');
-  assert.equal(cardMastery({...card,reviewHistory:history.map((entry,index)=>({...entry,method:index<3?'type':'quiz'}))},now).stage,'mature','Mixed methods count when enough unaided recalls support them');
+  assert.equal(cardMastery({...card,reviewHistory:history.map((entry,index)=>({...entry,method:index<14?'type':'quiz'}))},now).stage,'mature','Mixed methods count when enough unaided recalls support them');
 });
 test('guide rotation includes all five methods and skips unsupported choices',()=> {
   const cards=['Paris','Tokyo','Rome','Madrid'].map((a,index)=>({...basic,id:String(index),a}));
@@ -86,14 +123,14 @@ test('all questions and full marks are required to pass; edits invalidate the pa
   assert.equal(finishCoachSession(deck,'final',new Map([['a',true]]),now).passedAt,undefined);
   const fail=finishCoachSession(deck,'final',new Map([['a',true],['b',false]]),now);
   assert.equal(fail.passedAt,null); assert.equal(fail.lastTest.correct,1);
-  const pass=finishCoachSession(deck,'final',new Map([['a',true],['b',true]]),now);
+  const pass=finishCoachSession(testReady(deck),'final',new Map([['a',true],['b',true]]),now);
   assert.equal(pass.passedSignature,deckSignature(deck));
   assert.equal(coachStatus({...deck,coach:pass},now).passed,true);
   assert.equal(coachStatus({...deck,coach:pass,cards:[{...learned,a:'Changed'},{...learned,id:'b'}]},now).passed,false);
 });
 test('passed decks request one complete daily revision and stop after the optional deadline',()=> {
   const deck={cards:[learned],coach:{enabled:true,deadline:'2026-11-22'}};
-  const coach=finishCoachSession(deck,'final',new Map([['a',true]]),now);
+  const coach=finishCoachSession(testReady(deck),'final',new Map([['a',true]]),now);
   const passed={...deck,coach};
   assert.equal(coachStatus(passed,now).revisionDue,false);
   assert.equal(coachStatus(passed,new Date(2026,10,22,12)).revisionDue,true);
@@ -105,7 +142,7 @@ test('passed decks request one complete daily revision and stop after the option
 });
 test('optional guided practice preserves the final test and daily revision record',()=> {
   const deck={cards:[learned],coach:{enabled:true,deadline:'2026-11-21'}};
-  const passed={...deck,coach:finishCoachSession(deck,'final',new Map([['a',true]]),now)};
+  const passed={...deck,coach:finishCoachSession(testReady(deck),'final',new Map([['a',true]]),now)};
   assert.deepEqual(finishCoachSession(passed,'practice',new Map([['a',false]]),now),passed.coach);
 });
 test('the deadline constrains coached review dates without affecting manual schedules',()=> {

@@ -123,18 +123,21 @@ export function assessAnswer(given, expected, settings) {
   if (tokens(a) !== tokens(b) || Math.min(a.length, b.length) < 6 || Math.abs(a.length - b.length) > 3) return {correct: false, assisted: false};
   // Limit comparison size and use a single row to keep long cards responsive.
   if (Math.max(a.length, b.length) > 1000) return {correct: false, assisted: false};
-  let row = Array.from({length: b.length + 1}, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
+  // Compare decomposed letters so typo tolerance cannot silently move an accent.
+  // Combining marks remain exact even when small spelling mistakes are allowed.
+  const leftText=Array.from(a.normalize('NFD')), rightText=Array.from(b.normalize('NFD'));
+  let row = Array.from({length: rightText.length + 1}, (_, i) => i);
+  for (let i = 1; i <= leftText.length; i++) {
     const next = [i];
-    for (let j = 1; j <= b.length; j++) {
-      const left = a[i - 1], right = b[j - 1];
+    for (let j = 1; j <= rightText.length; j++) {
+      const left = leftText[i - 1], right = rightText[j - 1];
       const leftLetter = /\p{L}/u.test(left), rightLetter = /\p{L}/u.test(right);
       const sameCase = !rules.caseSensitive || (left === left.toUpperCase()) === (right === right.toUpperCase());
       next[j] = Math.min(next[j - 1] + (rightLetter ? 1 : Infinity), row[j] + (leftLetter ? 1 : Infinity), row[j - 1] + (left === right ? 0 : leftLetter && rightLetter && sameCase ? 1 : Infinity));
     }
     row = next;
   }
-  const close = row[b.length] <= Math.max(1, Math.floor(b.length * .08));
+  const close = row[rightText.length] <= Math.max(1, Math.floor(b.length * .08));
   return {correct: close, assisted: close};
 }
 

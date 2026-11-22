@@ -12,6 +12,6 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test engine.test.mjs coach.test.mjs audit.test.mjs && node tests.mjs"
+    "test": "node --test engine.test.mjs coach.test.mjs audit.test.mjs polish.test.mjs && node tests.mjs"
   }
 }

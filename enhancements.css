@@ -79,6 +79,12 @@ input[type=checkbox] { width: 18px; height: 18px; accent-color: #2E7D7A; }
 .flip-card-label, .flip-card small { color: #5C6B80; font-size: 14px; }
 .flip-card[aria-expanded=true] { background: #EAF5F3; border-color: #2E7D7A; }
 .question-text { white-space: pre-wrap; }
+.recommendation-reason { padding:12px 15px; margin:12px 0; background:#EAF5F3; border-left:3px solid #2E7D7A; color:#1B2A41; font-size:15px; line-height:1.6; }
+.progress-explainer { display:grid; gap:12px; padding:16px; margin-top:18px; background:#EDF1F5; border-radius:8px; font-size:15px; line-height:1.7; color:#5C6B80; }
+.progress-explainer p { margin:0; }
+.question-rules { font-size:14px; line-height:1.7; color:#5C6B80; padding:10px 12px; border:1px solid #C9D5E0; border-radius:8px; margin-bottom:12px; }
+.question-rules summary { cursor:pointer; color:#1B2A41; }
+.question-rules ul { padding-left:20px; margin:12px 0 0; list-style:disc; }
 @media(max-width: 480px) { .session-toolbar { gap: 8px; flex-wrap: wrap; } .session-toolbar .study-action { padding: 8px 10px; } }
 @media(max-width: 480px) { .review-panel { padding: 16px; } .method-grid { grid-template-columns: 1fr; } .match-board { gap: 8px; } .match-board .study-action { padding: 8px; font-size: 14px; } }
 @media(max-width: 480px) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { reviewPool, assessCardAnswer, normalizeAnswer, markingRules, canUseStudyMethod, distinctAnswerOptions } from './study-engine.js';
-import { overallPlan, recommendedMethod, scheduleForDeck, cardMastery } from './coach-engine.js';
+import { overallPlan, recommendedMethod, scheduleForDeck, cardMastery, coachStatus } from './coach-engine.js';
 import { saveSession, clearSession } from './session-store.js';
 import { feedbackMessage } from './feedback.js';
 
@@ -60,6 +60,7 @@ function Feedback({result, answer, explanation}) {
 
 function Exercise({card, deck, mode, flip, onAnswer, onNext, feedback, finalTest=false}) {
   const answer = answerFor(card, flip), prompt = promptFor(card, flip);
+  const rules=markingRules(card.marking);
   const [typed, setTyped] = useState('');
   const [revealed,setRevealed]=useState(false);
   const fieldRef = useRef(null);
@@ -97,6 +98,7 @@ function Exercise({card, deck, mode, flip, onAnswer, onNext, feedback, finalTest
       {mode === 'boolean' && <div className="review-actions"><Button onClick={() => finish({correct: data.isTrue})}>True</Button><Button onClick={() => finish({correct: !data.isTrue})}>False</Button></div>}
       {mode==='type' && <form className="recall-form" onSubmit={event => {event.preventDefault(); check();}}>
         <label className="review-copy" htmlFor="recall-answer">Type your answer using this question’s marking rules.</label>
+        <details className="question-rules"><summary>Marking rules for this question</summary><ul><li>{rules.caseSensitive?'Capital and lowercase letters must match.':'Capital and lowercase letters are treated the same.'}</li><li>{rules.ignoreDiacritics?'Accent differences are allowed.':'Accents and other diacritics must match.'}</li><li>{rules.ignorePunctuation?'Ordinary punctuation differences are allowed; numerical signs still matter.':'Punctuation must match.'}</li><li>{rules.allowTypos?'Small spelling mistakes in longer answers may be accepted; numbers and negation must match.':'Spelling must match an accepted answer.'}</li><li>{rules.ignoreExtraSpaces?'Extra spaces and line breaks are ignored.':'Spacing must match.'}</li></ul></details>
         <textarea id="recall-answer" ref={fieldRef} value={typed} onChange={event => setTyped(event.target.value)} onKeyDown={event => {if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {event.preventDefault(); check();}}} style={inputStyle} rows="3" autoComplete="off" spellCheck="false" />
         <button className="study-action selected" type="submit" disabled={!typed.trim()}>Check answer</button>
       </form>}
@@ -108,8 +110,10 @@ function Exercise({card, deck, mode, flip, onAnswer, onNext, feedback, finalTest
 
 function Summary({attempts, count, onEnd, kind, deck}) {
   const values = [...attempts.values()];
-  const passed=kind==='final' && values.length===deck.cards.length && values.every(Boolean);
-  return <Panel><h3 className="review-heading">{kind==='final'?passed?'Final test passed':'Final test complete':'Session done'}</h3><div className="session-stats"><span><strong>{count}</strong> answers checked</span><span><strong>{values.length ? Math.round(values.filter(Boolean).length / values.length * 100) : 0}%</strong> correct first time</span></div><p className="review-copy">{kind==='final'?passed?'Full marks! This deck is passed. You’ll be offered one daily revision session until your deadline, or indefinitely without one.':'You need 100% to pass. Practise the missed questions, then take a fresh final test.':kind==='revision'?'Daily revision complete. Your results and next review dates are saved.':'Your next review dates are saved. Return to the overall plan to see what to work on next.'}</p>{kind==='final' && !passed && <ul className="card-plan">{deck.cards.filter(card=>attempts.get(card.id)===false).map(card=><li key={card.id}><strong>{card.q}</strong><span>{card.a}</span></li>)}</ul>}<Button selected onClick={onEnd}>Back to deck</Button></Panel>;
+  const perfect=kind==='final' && values.length===deck.cards.length && values.every(Boolean);
+  const status=coachStatus(deck);
+  const passed=perfect && status.passed;
+  return <Panel><h3 className="review-heading">{kind==='final'?passed?'Final test passed':'Final test complete':'Session done'}</h3><div className="session-stats"><span><strong>{count}</strong> answers checked</span><span><strong>{values.length ? Math.round(values.filter(Boolean).length / values.length * 100) : 0}%</strong> correct first time</span></div><p className="review-copy">{kind==='final'?passed?'Both knowledge checks are complete. This deck is passed. Keep it fresh with daily revision.':perfect?`Full marks: ${status.testPasses}/2 knowledge checks completed. Recall the full deck once, or return on a later day, before the confirmation test.`:'Review the missed questions before testing again. Your completed checks and earlier learning are kept.':kind==='revision'?'Daily revision complete. Your results and next review dates are saved.':'Your next review dates are saved. Return to the overall plan to see what to work on next.'}</p>{kind==='final' && !perfect && <ul className="card-plan">{deck.cards.filter(card=>attempts.get(card.id)===false).map(card=><li key={card.id}><strong>{card.q}</strong><span>{card.a}</span></li>)}</ul>}<Button selected onClick={onEnd}>Back to deck</Button></Panel>;
 }
 
 export function Session(props) {
@@ -117,7 +121,7 @@ export function Session(props) {
 }
 function RecallSession({deck, config, onEnd, onPause, patchCard, countReview, onComplete}) {
   const [sessionId]=useState(()=>config.resume?.id || (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`));
-  const [queue, setQueue] = useState(() => config.resume?.queue || (config.coachKind ? overallPlan(deck) : poolFor(deck,config.scope)).slice(0, config.limit).map(card => card.id));
+  const [queue, setQueue] = useState(() => config.resume?.queue || (config.coachKind==='final' ? shuffle(deck.cards) : config.coachKind ? overallPlan(deck) : poolFor(deck,config.scope)).slice(0, config.limit).map(card => card.id));
   const [pos, setPos] = useState(config.resume?.pos||0), [feedback, setFeedback] = useState(config.resume?.feedback||null), [count, setCount] = useState(config.resume?.count||0);
   const attempts = useRef(new Map(config.resume?.attempts||[])), retries = useRef(new Map(config.resume?.retries||[])), answered = useRef(!!config.resume?.feedback), nextLocked = useRef(false);
   const card = deck.cards.find(card => card.id === queue[pos]);
@@ -200,7 +204,7 @@ function MatchBoard({cards, flip, onAttempt, onNext}) {
       usedLeft.current.add(selected.id); usedRight.current.add(other.id);
       setLeftDone(values => [...values, selected.id]); setRightDone(values => [...values, other.id]); setSelected(null);
       setMessage('Matched. Choose another pair.');
-    } else setMessage('Those don’t match. Try a different answer. This question will be reviewed tomorrow.');
+    } else setMessage('Those don’t match. Try a different answer. This card will return.');
   };
   return <Panel><h3 className="review-heading">Matching pairs</h3><p className="review-copy" role="status">{leftDone.length === cards.length ? 'All pairs matched. Review dates saved.' : message}</p><div className="match-board"><div>{cards.map(card => <Button key={card.id} selected={selected?.id === card.id} aria-pressed={selected?.id === card.id} disabled={leftDone.includes(card.id)} onClick={() => setSelected(card)}>{promptFor(card, flip)}{leftDone.includes(card.id) ? ' ✓' : ''}</Button>)}</div><div>{right.map(card => <Button key={card.id} disabled={!selected || rightDone.includes(card.id)} onClick={() => pair(card)}>{answerFor(card, flip)}{rightDone.includes(card.id) ? ' ✓' : ''}</Button>)}</div></div>{leftDone.length === cards.length && <Button selected onClick={() => {if (!locked.current) {locked.current = true; onNext();}}}>Continue</Button>}</Panel>;
 }

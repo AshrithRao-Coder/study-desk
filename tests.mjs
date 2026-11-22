@@ -34,7 +34,7 @@ try {
   run('place = {lat: 51, lon: 0, label: "London"}');
   nice.w = forecast();
   run('render(window.w, null)');
-  const names = () => [...nice.document.querySelectorAll('.pack-row strong')].map(e => e.textContent);
+  const names = () => [...nice.document.querySelectorAll('.packing[aria-labelledby="take-heading"] .pack-row strong')].map(e => e.textContent);
   assert.deepEqual(names(), ['Umbrella', 'Sweater / jumper', 'Hooded waterproof']);
   assert.equal(nice.document.querySelectorAll('.packing input').length, 0, 'Recommendations have no checkboxes');
   assert.match(nice.document.querySelector('.packing').textContent, /70% rain chance/);
@@ -56,7 +56,7 @@ try {
   await run('load({lat: 52, lon: 0, label:"Other"})');
   assert.match(nice.document.querySelector('#app').textContent, /Couldn't get the weather/, 'Never show another place’s cache');
   await run('load({lat: 51, lon: 0, label:"London"})');
-  assert.match(nice.document.querySelector('#offline-note').textContent, /Offline/, 'Matching offline cache works');
+  assert.match(nice.document.querySelector('#offline-note').textContent, /Couldn't refresh/, 'Matching saved forecast is labelled when refresh fails');
   const deferred = [];
   nice.fetch = url => url.includes('air-quality') ? Promise.resolve({ok: false}) : new Promise(resolve => deferred.push(resolve));
   const first = run('load({lat: 1, lon: 0, label:"First"})');
@@ -276,7 +276,7 @@ try {
 
   const today = dateKey(new Date());
   const pastDay = days=>{const date=new Date(); date.setDate(date.getDate()+days); return dateKey(date);};
-  const learned = (id,answer)=>seed(id,answer,{seen:3,right:3,next:today,interval:6,stability:6,reviewHistory:Array.from({length:9},(_,index)=>({day:pastDay([-2,-1,0][index%3]),correct:true,assisted:false,method:'type',attemptId:`learned-${index}:0`}))});
+  const learned = (id,answer)=>seed(id,answer,{seen:3,right:3,next:today,interval:6,stability:6,reviewHistory:Array.from({length:16},(_,index)=>({day:pastDay([-2,-1,0][index%3]),correct:true,assisted:false,method:'type',attemptId:`learned-${index}:0`}))});
   const prepared=[learned(0,'Paris'),learned(1,'Tokyo')];
   const coached=await bootStudy(prepared,{enabled:true,deadline:pastDay(2)});
   assert.equal(coached.window.document.querySelectorAll('.method-button').length,0,'Coach recommends instead of asking for a method');
@@ -286,6 +286,16 @@ try {
     await coached.fill(coached.window.document.querySelector('#recall-answer'),prepared.find(card=>card.q===question).a);
     await coached.click('Check answer');
     assert.equal(coached.window.document.querySelector('.answer-feedback'),null,'Final test does not reveal answers midway');
+  }
+  assert.match(coached.window.document.body.textContent,/1\/2 knowledge checks/);
+  assert.equal(JSON.parse(coached.window.localStorage.getItem('study:decks'))[0].coach.passedAt,null,'One perfect test cannot pass a deck');
+  for(let round=1;round<2;round++) {
+    await coached.click('Back to deck');
+    for(let check=0;check<1;check++) {
+      await coached.click('Start full-deck recall check');
+      await finishGuidedRound(coached,prepared);await coached.click('Back to deck');
+    }
+    await coached.click('Start final test');await finishGuidedRound(coached,prepared);
   }
   assert.match(coached.window.document.body.textContent,/Final test passed/);
   const passedDeck=JSON.parse(coached.window.localStorage.getItem('study:decks'))[0];
@@ -453,18 +463,19 @@ try {
   assert.equal(JSON.parse(allMethods.window.localStorage.getItem('study:decks'))[0].coach.guideStep,5,'Every completed guided mode advances the rotation');
   const sameCards=[seed(0,'Paris'),seed(1,'Tokyo')];
   const sameDay=await bootStudy(sameCards,{enabled:true});
-  for (let session=0;session<9;session++) {
+  for (let session=0;session<40;session++) {
     await sameDay.click('Start recommended session');
     await finishGuidedRound(sameDay,sameCards);
     await sameDay.click('Back to deck');
-    if (session<8) assert.ok(sameDay.allButtons().some(button=>button.textContent==='Start recommended session'),'Mastery needs more than a few perfect sessions');
+    if (sameDay.allButtons().some(button=>button.textContent==='Start final test')) break;
   }
-  await sameDay.click('Start final test');
-  await finishGuidedRound(sameDay,sameCards);await sameDay.click('Back to deck');
-  for (let session=0;session<2;session++) {
-    await sameDay.click('Continue guided practice');await finishGuidedRound(sameDay,sameCards);await sameDay.click('Back to deck');
+  for(let round=0;round<2;round++) {
+    await sameDay.click('Start final test');await finishGuidedRound(sameDay,sameCards);await sameDay.click('Back to deck');
+    if(round<1) for(let check=0;check<1;check++) {
+      await sameDay.click('Start full-deck recall check');await finishGuidedRound(sameDay,sameCards);await sameDay.click('Back to deck');
+    }
   }
-  assert.equal(sameDay.window.document.querySelector('.coach-metrics strong').textContent,'100%','Full mastery remains achievable on the same day after enough independent practice');
+  assert.equal(sameDay.window.document.querySelector('.coach-metrics strong').textContent,'100%','Full mastery requires the complete test series, without a daily cap');
   console.log('StudyDesk: five methods, diacritics, export/import, mastery, coach, final tests, daily revision, deadlines and backups passed');
 } finally {
   for (const window of windows) await window.happyDOM.close();
